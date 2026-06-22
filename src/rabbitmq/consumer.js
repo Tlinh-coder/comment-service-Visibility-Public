@@ -1,41 +1,59 @@
 const amqp = require("amqplib");
 const Comment = require("../models/Comment");
-const redisClient = require("../config/redis");
-const { getIO } = require("../socket");
 
 const QUEUE = "comments";
-const AMQP_URL = process.env.AMQP_URL || "amqp://localhost";
+
+const RABBITMQ_URL =
+  process.env.RABBITMQ_URL || "amqp://localhost";
 
 async function startConsumer() {
-  const connection = await amqp.connect(AMQP_URL);
-  const channel = await connection.createChannel();
+  try {
+    const connection = await amqp.connect(RABBITMQ_URL);
+    const channel = await connection.createChannel();
 
-  await channel.assertQueue(QUEUE);
+    await channel.assertQueue(QUEUE);
 
-  console.log("🎧 Waiting for comments...");
+    console.log("Waiting for comments...");
 
-  channel.consume(QUEUE, async (msg) => {
-    try {
-      const data = JSON.parse(msg.content.toString());
+    channel.consume(QUEUE, async (msg) => {
+      if (msg !== null) {
+        try {
+          const data = JSON.parse(msg.content.toString());
 
-      const comment = await Comment.create(data);
-      console.log("💾 Comment saved");
+          if (
+            !data.productId ||
+            !data.userId ||
+            !data.username ||
+            !data.content
+          ) {
+            console.error("Invalid comment data:", data);
+            channel.ack(msg);
+            return;
+          }
 
-      // cache invalidation
-      await redisClient.del(`comments:${data.productId}`);
-      console.log("🧹 Cache cleared");
+          const comment = new Comment({
+            productId: data.productId,
+            userId: data.userId,
+            username: data.username,
+            content: data.content,
+            role: "user",
+            parentId: null,
+          });
 
-      // realtime push
-      const io = getIO();
-      io.emit("newComment", comment);
+          await comment.save();
 
-      channel.ack(msg);
-    } catch (error) {
-      console.error("❌ Consumer error:", error.message);
-      // requeue = false so we don't loop on a bad message
-      channel.nack(msg, false, false);
-    }
-  });
+          console.log("Comment saved");
+
+          channel.ack(msg);
+        } catch (error) {
+          console.error("Consumer error:", error.message);
+          channel.ack(msg);
+        }
+      }
+    });
+  } catch (error) {
+    console.error("RabbitMQ connection error:", error.message);
+  }
 }
 
 module.exports = startConsumer;

@@ -1,11 +1,12 @@
 const amqp = require("amqplib");
 
 const QUEUE = "comments";
-const AMQP_URL = process.env.AMQP_URL || "amqp://localhost";
 
 async function publishComment(commentData) {
-  try {
-    const connection = await amqp.connect(AMQP_URL);
+    try {
+      const connection = await amqp.connect(
+        process.env.RABBITMQ_URL
+      );
 
     const channel = await connection.createChannel();
 
@@ -16,7 +17,7 @@ async function publishComment(commentData) {
       Buffer.from(JSON.stringify(commentData))
     );
 
-    console.log("📨 Comment sent to queue");
+    console.log(" Comment sent to queue");
 
     setTimeout(() => {
       connection.close();

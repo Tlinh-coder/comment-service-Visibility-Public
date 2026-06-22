@@ -1,51 +1,57 @@
 const Comment = require("../models/Comment");
+const publishComment = require("../rabbitmq/publisher");
 
-// CREATE COMMENT
+// CREATE COMMENT -> RabbitMQ
 exports.createComment = async (req, res) => {
   try {
-    const comment = await Comment.create(req.body);
-    res.status(201).json(comment);
+    await publishComment(req.body);
+
+    return res.status(200).json({
+      message: "Comment queued",
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
 // GET COMMENTS + BUILD TREE
 exports.getCommentsByProduct = async (req, res) => {
-    try {
-      const comments = await Comment.find({
-        productId: req.params.productId,
-      }).sort({ createdAt: 1 });
-  
-      const map = {};
-      const result = [];
-  
-      comments.forEach((comment) => {
-        const obj = comment.toObject();
-        obj.replies = [];
-        map[obj._id] = obj;
-      });
-  
-      comments.forEach((comment) => {
-        const obj = map[comment._id];
-  
-        if (obj.parentId) {
-          if (map[obj.parentId]) {
-            map[obj.parentId].replies.push(obj);
-          }
-        } else {
-          result.push(obj);
+  try {
+    const comments = await Comment.find({
+      productId: req.params.productId,
+    }).sort({ createdAt: 1 });
+
+    const map = {};
+    const result = [];
+
+    comments.forEach((comment) => {
+      const obj = comment.toObject();
+      obj.replies = [];
+      map[obj._id] = obj;
+    });
+
+    comments.forEach((comment) => {
+      const obj = map[comment._id];
+
+      if (obj.parentId) {
+        if (map[obj.parentId]) {
+          map[obj.parentId].replies.push(obj);
         }
-      });
-  
-      return res.json(result);
-  
-    } catch (error) {
-      res.status(500).json({
-        message: error.message,
-      });
-    }
-  };
+      } else {
+        result.push(obj);
+      }
+    });
+
+    return res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
 // UPDATE
 exports.updateComment = async (req, res) => {
   try {
@@ -54,9 +60,12 @@ exports.updateComment = async (req, res) => {
       { content: req.body.content },
       { new: true }
     );
+
     res.json(comment);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
@@ -64,9 +73,14 @@ exports.updateComment = async (req, res) => {
 exports.deleteComment = async (req, res) => {
   try {
     await Comment.findByIdAndDelete(req.params.id);
-    res.json({ message: "Deleted" });
+
+    res.json({
+      message: "Deleted",
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
@@ -76,7 +90,9 @@ exports.likeComment = async (req, res) => {
     const comment = await Comment.findById(req.params.id);
 
     if (!comment) {
-      return res.status(404).json({ message: "Not found" });
+      return res.status(404).json({
+        message: "Not found",
+      });
     }
 
     comment.likes += 1;
@@ -84,35 +100,38 @@ exports.likeComment = async (req, res) => {
 
     res.json(comment);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
+
+// SELLER REPLY
 exports.replyComment = async (req, res) => {
-    try {
-      const parentComment = await Comment.findById(
-        req.params.id
-      );
-  
-      if (!parentComment) {
-        return res.status(404).json({
-          message: "Comment not found",
-        });
-      }
-  
-      const reply = await Comment.create({
-        productId: parentComment.productId,
-        userId: req.body.userId,
-        username: req.body.username,
-        content: req.body.content,
-        role: "seller",
-        parentId: parentComment._id.toString(),
-      });
-  
-      res.status(201).json(reply);
-  
-    } catch (error) {
-      res.status(500).json({
-        message: error.message,
+  try {
+    const parentComment = await Comment.findById(
+      req.params.id
+    );
+
+    if (!parentComment) {
+      return res.status(404).json({
+        message: "Comment not found",
       });
     }
-  };
+
+    const reply = await Comment.create({
+      productId: parentComment.productId,
+      userId: req.body.userId,
+      username: req.body.username,
+      content: req.body.content,
+      role: "seller",
+      parentId: parentComment._id.toString(),
+    });
+
+    res.status(201).json(reply);
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
